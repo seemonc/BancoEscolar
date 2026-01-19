@@ -256,20 +256,30 @@ else:
                                 time.sleep(1)
                                 st.rerun()
 
-        # --- TAB 2: GESTIÓN (AQUÍ ESTÁ LA CARGA MASIVA DE REGRESO) ---
+        # --- TAB 2: GESTIÓN (AQUÍ ESTÁ EL ARREGLO) ---
         with tab2:
             st.header("Gestión")
-            with st.expander("➕ Nuevo Usuario"):
+            with st.expander("➕ Nuevo Usuario", expanded=True): # Lo puse abierto por defecto para que lo veas
                 with st.form("new"):
-                    n = st.text_input("Nombre")
-                    p = st.text_input("Pass", "1234")
-                    g = st.text_input("Grado")
-                    gr = st.text_input("Grupo")
-                    if st.form_submit_button("Crear"):
-                        crear_usuario(n, "alumno", p, "", g, gr)
-                        st.rerun()
+                    c1, c2 = st.columns(2)
+                    n = c1.text_input("Nombre de Usuario (Único)")
+                    p = c2.text_input("Contraseña", "1234")
+                    
+                    # --- AQUÍ ESTÁ EL SELECTOR DE ROL NUEVO ---
+                    c3, c4, c5 = st.columns(3)
+                    r_rol = c3.selectbox("Rol", ["alumno", "profesor", "director", "administrativo"])
+                    g_grado = c4.text_input("Grado (solo alumnos)")
+                    g_grupo = c5.text_input("Grupo (solo alumnos)")
+                    
+                    if st.form_submit_button("Crear Usuario"):
+                        # Ahora pasamos la variable 'r_rol' en vez de "alumno" fijo
+                        if crear_usuario(n, r_rol, p, "", g_grado, g_grupo):
+                            st.success(f"Usuario {n} creado como {r_rol}")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Ese usuario ya existe.")
             
-            # --- BLOQUE QUE TE FALTABA ---
             with st.expander("📂 Carga Masiva (CSV)", expanded=False):
                 st.markdown("Sube un archivo CSV con columnas: `nombre`, `rol` (alumno), `password`, `grado`, `grupo`")
                 up = st.file_uploader("Subir archivo CSV", type="csv")
@@ -277,7 +287,6 @@ else:
                     df = pd.read_csv(up)
                     if st.button("Procesar Archivo"):
                         for _, row in df.iterrows():
-                            # Asegura que existan las columnas o pone vacío
                             mail = row.get('email', '')
                             gr = row.get('grado', '')
                             gp = row.get('grupo', '')
@@ -285,7 +294,6 @@ else:
                         st.success("Usuarios cargados exitosamente.")
                         time.sleep(1)
                         st.rerun()
-            # -----------------------------
             
             conn = get_connection()
             df_u = pd.read_sql("SELECT id, nombre, rol, password, grado, grupo FROM usuarios", conn)
