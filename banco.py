@@ -229,8 +229,10 @@ else:
                             st.success("💵 Pagar Estímulo")
                             u_p = st.selectbox("Alumno", lst, key="up")
                             a_p = st.number_input("Monto", 50, key="ap")
+                            # --- CAMBIO AQUÍ: AGREGADO EL MOTIVO ---
+                            c_p = st.text_input("Motivo del Estímulo", "Tarea Cumplida", key="cp_ind")
                             if st.button("Aplicar Pago"):
-                                ejecutar_transaccion(st.session_state['usuario'], u_p, a_p, "Pago", "ingreso")
+                                ejecutar_transaccion(st.session_state['usuario'], u_p, a_p, c_p, "ingreso")
                                 st.toast(f"Pagado a {u_p}", icon="✅")
                                 time.sleep(1)
                                 st.rerun()
@@ -243,6 +245,7 @@ else:
                     if sel:
                         c_m1, c_m2 = st.columns(2)
                         with c_m1:
+                            st.error("🚨 Multas Masivas")
                             m_m = st.selectbox("Motivo Masivo", list(CATALOGO_MULTAS.keys()), key="mm")
                             if st.button(f"Multar a {len(sel)} Alumnos"):
                                 for u in sel: ejecutar_transaccion(u, st.session_state['usuario'], CATALOGO_MULTAS[m_m], m_m, "multa")
@@ -250,29 +253,32 @@ else:
                                 time.sleep(1)
                                 st.rerun()
                         with c_m2:
+                            st.success("💵 Pagos Masivos")
+                            # --- CAMBIO AQUÍ: MONTOS Y MOTIVOS EDITABLES ---
+                            a_mass = st.number_input("Monto por alumno", 50, key="am_mass")
+                            c_mass = st.text_input("Motivo del Pago", "Participación en clase", key="cm_mass")
+                            
                             if st.button(f"Pagar a {len(sel)} Alumnos"):
-                                for u in sel: ejecutar_transaccion(st.session_state['usuario'], u, 50, "Beca", "ingreso")
+                                for u in sel: ejecutar_transaccion(st.session_state['usuario'], u, a_mass, c_mass, "ingreso")
                                 st.success("Pagos aplicados")
                                 time.sleep(1)
                                 st.rerun()
 
-        # --- TAB 2: GESTIÓN (AQUÍ ESTÁ EL ARREGLO) ---
+        # --- TAB 2: GESTIÓN ---
         with tab2:
             st.header("Gestión")
-            with st.expander("➕ Nuevo Usuario", expanded=True): # Lo puse abierto por defecto para que lo veas
+            with st.expander("➕ Nuevo Usuario", expanded=True):
                 with st.form("new"):
                     c1, c2 = st.columns(2)
                     n = c1.text_input("Nombre de Usuario (Único)")
                     p = c2.text_input("Contraseña", "1234")
                     
-                    # --- AQUÍ ESTÁ EL SELECTOR DE ROL NUEVO ---
                     c3, c4, c5 = st.columns(3)
                     r_rol = c3.selectbox("Rol", ["alumno", "profesor", "director", "administrativo"])
                     g_grado = c4.text_input("Grado (solo alumnos)")
                     g_grupo = c5.text_input("Grupo (solo alumnos)")
                     
                     if st.form_submit_button("Crear Usuario"):
-                        # Ahora pasamos la variable 'r_rol' en vez de "alumno" fijo
                         if crear_usuario(n, r_rol, p, "", g_grado, g_grupo):
                             st.success(f"Usuario {n} creado como {r_rol}")
                             time.sleep(1)
