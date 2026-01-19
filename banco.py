@@ -7,7 +7,7 @@ import os
 import random
 
 # ==========================================
-# 1. CONFIGURACIÓN E INYECCIÓN CSS (RESPONSIVE)
+# 1. CONFIGURACIÓN E INYECCIÓN CSS
 # ==========================================
 if os.path.exists("logo.png"):
     st.set_page_config(page_title="Banco Summerhill", page_icon="logo.png", layout="wide")
@@ -28,18 +28,9 @@ def cargar_estilos():
         /* BOTONES MODERNOS */
         .stButton > button {
             background-image: linear-gradient(to right, #1fa2ff 0%, #12d8fa 51%, #1fa2ff 100%);
-            margin: 5px 0px; 
-            padding: 12px 20px; 
-            text-align: center; 
-            text-transform: uppercase;
-            transition: 0.5s; 
-            background-size: 200% auto; 
-            color: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-            border-radius: 12px; 
-            border: none; 
-            font-weight: bold; 
-            width: 100%;
+            margin: 5px 0px; padding: 12px 20px; text-align: center; text-transform: uppercase;
+            transition: 0.5s; background-size: 200% auto; color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 12px; border: none; font-weight: bold; width: 100%;
         }
         .stButton > button:hover { background-position: right center; color: #fff; transform: scale(1.02); }
         
@@ -52,21 +43,10 @@ def cargar_estilos():
         /* OCULTAR COSAS INNECESARIAS */
         #MainMenu {visibility: hidden;} footer {visibility: hidden;} .stDeployButton {display:none;}
         
-        /* === REGLAS ESPECIALES PARA CELULAR (PANTALLAS CHICAS) === */
+        /* MOBILE */
         @media only screen and (max-width: 600px) {
-            /* Quitar el espacio gigante de arriba */
             .block-container { padding-top: 2rem !important; padding-bottom: 5rem !important; }
-            
-            /* Títulos más pequeños para que quepan */
             h1 { font-size: 1.8rem !important; }
-            h2 { font-size: 1.5rem !important; }
-            h3 { font-size: 1.2rem !important; }
-            
-            /* Botones más fáciles de tocar (más gorditos) */
-            .stButton > button { padding: 15px 10px !important; font-size: 1rem !important; }
-            
-            /* Ajustar pestañas */
-            .stTabs [data-baseweb="tab"] { padding: 10px 5px !important; font-size: 0.9rem !important; }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -271,7 +251,7 @@ else:
         else:
             tabs = st.tabs(["⚡ Operaciones", "🛡️ Autorizaciones", "📊 Historial"])
 
-        # --- TAB 1: OPERACIONES ---
+        # --- TAB 1: OPERACIONES (FLUJO UNIFICADO CON MENÚS) ---
         with tabs[0]:
             conn = get_connection()
             df_alumnos = pd.read_sql("SELECT nombre, cuenta, grado, grupo FROM usuarios WHERE rol='alumno'", conn)
@@ -280,14 +260,14 @@ else:
             if df_alumnos.empty:
                 st.warning("No hay alumnos registrados.")
             else:
-                with st.expander("🔍 FILTRAR ALUMNOS", expanded=True):
+                with st.expander("🔍 FILTROS DE BÚSQUEDA", expanded=True):
                     c_fil1, c_fil2, c_fil3 = st.columns(3)
                     grados = ["Todos"] + sorted([x for x in df_alumnos['grado'].unique() if x])
                     grupos = ["Todos"] + sorted([x for x in df_alumnos['grupo'].unique() if x])
                     
                     f_grado = c_fil1.selectbox("Grado", grados)
                     f_grupo = c_fil2.selectbox("Grupo", grupos)
-                    f_nombre = c_fil3.text_input("Buscar Nombre")
+                    f_nombre = c_fil3.text_input("Nombre")
 
                     df_filtrado = df_alumnos.copy()
                     if f_grado != "Todos": df_filtrado = df_filtrado[df_filtrado['grado'] == f_grado]
@@ -297,45 +277,60 @@ else:
                 if df_filtrado.empty:
                     st.info("No se encontraron alumnos.")
                 else:
+                    # Crear etiquetas
                     df_filtrado['label'] = df_filtrado.apply(lambda x: f"{x['nombre']} ({x['grado']}{x['grupo']})", axis=1)
                     dic_alumnos = dict(zip(df_filtrado['label'], df_filtrado['nombre']))
                     
-                    st.markdown("---")
-                    c_op1, c_op2 = st.columns(2)
+                    st.divider()
                     
-                    with c_op1:
-                        st.error("🚨 COBROS / MULTAS")
-                        sel_c = st.selectbox("Alumno", list(dic_alumnos.keys()), key="sc")
-                        target_c = dic_alumnos[sel_c]
-                        
-                        op_c = st.selectbox("Motivo", list(OPCIONES_MULTAS.keys()), key="oc")
-                        if 'last_c' not in st.session_state or st.session_state['last_c'] != op_c:
-                            st.session_state['m_c'] = OPCIONES_MULTAS[op_c]
-                            st.session_state['t_c'] = op_c if OPCIONES_MULTAS[op_c]>0 else ""
-                            st.session_state['last_c'] = op_c
-                        
-                        m_c = st.number_input("Monto ($)", min_value=0, key="m_c")
-                        t_c = st.text_input("Detalle", key="t_c")
-                        if st.button("Aplicar Multa", use_container_width=True):
-                            transaccion(target_c, st.session_state['usuario'], m_c, t_c, "multa")
-                            st.toast("Multa Aplicada", icon="✅"); time.sleep(0.5); st.rerun()
+                    # === ZONA UNIFICADA DE ACCIÓN ===
+                    st.markdown("### 🎯 Realizar Operación")
+                    
+                    # 1. SELECCIONAR ALUMNO
+                    sel_alumno = st.selectbox("1. Seleccionar Alumno", list(dic_alumnos.keys()))
+                    target_alumno = dic_alumnos[sel_alumno]
 
-                    with c_op2:
-                        st.success("💵 PAGOS / PREMIOS")
-                        sel_p = st.selectbox("Alumno", list(dic_alumnos.keys()), key="sp")
-                        target_p = dic_alumnos[sel_p]
-                        
-                        op_p = st.selectbox("Motivo", list(OPCIONES_PAGOS.keys()), key="op")
-                        if 'last_p' not in st.session_state or st.session_state['last_p'] != op_p:
-                            st.session_state['m_p'] = OPCIONES_PAGOS[op_p]
-                            st.session_state['t_p'] = op_p if OPCIONES_PAGOS[op_p]>0 else ""
-                            st.session_state['last_p'] = op_p
-                        
-                        m_p = st.number_input("Monto ($)", min_value=0, key="m_p")
-                        t_p = st.text_input("Detalle", key="t_p")
-                        if st.button("Aplicar Premio", use_container_width=True):
-                            transaccion(st.session_state['usuario'], target_p, m_p, t_p, "ingreso")
-                            st.toast("Premio Aplicado", icon="✅"); time.sleep(0.5); st.rerun()
+                    # 2. SELECCIONAR TIPO DE ACCIÓN (MULTA O PAGO)
+                    tipo_accion = st.selectbox("2. Tipo de Operación", ["🔴 COBRAR MULTA", "🟢 PAGAR PREMIO"])
+
+                    # 3. SELECCIONAR MOTIVO Y MONTOS (DINÁMICO)
+                    if tipo_accion == "🔴 COBRAR MULTA":
+                        lista_opciones = OPCIONES_MULTAS
+                        key_prefix = "multa"
+                        color_btn = "primary"
+                        txt_btn = "Aplicar Cobro"
+                        tipo_db = "multa"
+                    else:
+                        lista_opciones = OPCIONES_PAGOS
+                        key_prefix = "premio"
+                        color_btn = "primary" # Streamlit solo tiene primary/secondary
+                        txt_btn = "Aplicar Pago"
+                        tipo_db = "ingreso"
+                    
+                    opcion_motivo = st.selectbox("3. Seleccionar Motivo", list(lista_opciones.keys()), key=f"sel_{key_prefix}")
+                    
+                    # Lógica de auto-llenado
+                    if f'last_{key_prefix}' not in st.session_state or st.session_state[f'last_{key_prefix}'] != opcion_motivo:
+                        st.session_state[f'm_{key_prefix}'] = lista_opciones[opcion_motivo]
+                        st.session_state[f't_{key_prefix}'] = opcion_motivo if lista_opciones[opcion_motivo]>0 else ""
+                        st.session_state[f'last_{key_prefix}'] = opcion_motivo
+                    
+                    c_monto, c_detalle = st.columns([1, 2])
+                    monto_final = c_monto.number_input("Monto ($)", min_value=0, key=f"m_{key_prefix}")
+                    detalle_final = c_detalle.text_input("Detalle / Comentario", key=f"t_{key_prefix}")
+                    
+                    if st.button(txt_btn, use_container_width=True):
+                        if monto_final > 0 and detalle_final:
+                            if tipo_db == "multa":
+                                transaccion(target_alumno, st.session_state['usuario'], monto_final, detalle_final, tipo_db)
+                            else:
+                                transaccion(st.session_state['usuario'], target_alumno, monto_final, detalle_final, tipo_db)
+                            
+                            st.toast(f"Operación Exitosa: {txt_btn}", icon="✅")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.warning("Verifica el monto y el detalle.")
 
         # --- TAB 2: AUTORIZACIONES ---
         with tabs[1]:
