@@ -3,83 +3,93 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import time
-# --- CÓDIGO TEMPORAL DE DIAGNÓSTICO ---
 import os
-st.write("📂 ESTOY BUSCANDO EN:", os.getcwd())
-st.write("👀 ARCHIVOS QUE VEO AQUÍ:", os.listdir())
-st.write("¿EXISTE LOGO.PNG?:", os.path.exists("logo.png"))
-# --------------------------------------
-import os
+import random
 
 # ==========================================
-# 1. CONFIGURACIÓN E IMAGEN DE PESTAÑA
+# 1. LOGO
 # ==========================================
-# Intentamos poner el logo en la pestaña del navegador. 
-# Si falla (por si acaso), pone un banco normal.
-try:
-    st.set_page_config(page_title="Banco Escolar SEP", page_icon="logo.png", layout="wide")
-except:
-    st.set_page_config(page_title="Banco Escolar SEP", page_icon="🏦", layout="wide")
+if os.path.exists("logo.png"):
+    st.set_page_config(page_title="Banco Summerhill", page_icon="logo.png", layout="wide")
+    archivo_logo = "logo.png"
+elif os.path.exists("Logo.png"):
+    st.set_page_config(page_title="Banco Summerhill", page_icon="Logo.png", layout="wide")
+    archivo_logo = "Logo.png"
+else:
+    st.set_page_config(page_title="Banco Summerhill", page_icon="🏦", layout="wide")
+    archivo_logo = None
 
-ROLES_ADMINISTRATIVOS = ['admin', 'profesor', 'director', 'administrativo']
-CATALOGO_MULTAS = {
-    "Incumplimiento de Tarea": 200, "Interrupción de Clase": 150,
-    "Falta de Respeto (Verbal)": 500, "Uso de Celular": 100,
-    "Área sucia": 50, "Daño a Material": 300
+# ==========================================
+# 2. LISTAS
+# ==========================================
+OPCIONES_MULTAS = {
+    "--- Personalizado ---": 0, "Uso de Celular": 50, "No traer Tarea": 100,
+    "Falta de Respeto": 500, "Dañar Material": 300, "Uniforme Incompleto": 50, "Platicar / Interrumpir": 30
+}
+
+OPCIONES_PAGOS = {
+    "--- Personalizado ---": 0, "Tarea Cumplida": 100, "Proyecto Especial": 200,
+    "Participación": 20, "Ayudar al Profesor": 50, "Mantener lugar limpio": 30, "Asistencia Perfecta": 50
 }
 
 # ==========================================
-# 2. BASE DE DATOS
+# 3. BASE DE DATOS
 # ==========================================
 def get_connection():
     return sqlite3.connect('banco_escolar.db')
 
+def generar_cuenta():
+    return str(random.randint(10000000, 99999999))
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()
-    # Tabla Usuarios
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   nombre TEXT UNIQUE, rol TEXT, saldo REAL, password TEXT, email TEXT,
-                  grado TEXT, grupo TEXT)''') 
-    
-    # Tabla Transacciones
+                  grado TEXT, grupo TEXT, cuenta TEXT)''') 
     c.execute('''CREATE TABLE IF NOT EXISTS transacciones
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   fecha TEXT, remitente TEXT, destinatario TEXT, monto REAL, concepto TEXT, tipo TEXT)''')
-    
-    # Actualizaciones automáticas (por si vienes de una versión vieja)
-    try:
-        c.execute("ALTER TABLE usuarios ADD COLUMN grado TEXT")
-        c.execute("ALTER TABLE usuarios ADD COLUMN grupo TEXT")
-        c.execute("ALTER TABLE usuarios ADD COLUMN email TEXT")
-    except:
-        pass
+    c.execute('''CREATE TABLE IF NOT EXISTS solicitudes
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  remitente TEXT, destinatario TEXT, monto REAL, concepto TEXT, fecha TEXT)''')
 
-    # Crear Admin si no existe
+    try: c.execute("ALTER TABLE usuarios ADD COLUMN cuenta TEXT")
+    except: pass
+
+    c.execute("SELECT id FROM usuarios WHERE cuenta IS NULL OR cuenta = ''")
+    for usr in c.fetchall():
+        c.execute("UPDATE usuarios SET cuenta = ? WHERE id = ?", (generar_cuenta(), usr[0]))
+    
     c.execute("SELECT * FROM usuarios WHERE nombre='admin'")
     if not c.fetchone():
-        c.execute("INSERT INTO usuarios (nombre, rol, saldo, password, email, grado, grupo) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                  ('admin', 'admin', 1000000, '1234', 'admin@escuela.edu', '', ''))
-        conn.commit()
+        c.execute("INSERT INTO usuarios (nombre, rol, saldo, password, email, grado, grupo, cuenta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                  ('admin', 'admin', 1000000, '1234', 'admin@summerhill.edu', '', '', generar_cuenta()))
+    conn.commit()
     conn.close()
 
 # ==========================================
-# 3. LÓGICA DEL SISTEMA
+# 4. LÓGICA (CORREGIDA PARA FLOATS)
 # ==========================================
 def login(usuario, password):
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM usuarios WHERE nombre=? AND password=?", conn, params=(usuario, password))
+    df = pd.read_sql_query("SELECT * FROM usuarios WHERE nombre=? AND password=?", conn, params=(str(usuario), str(password)))
     conn.close()
     return df
 
-def crear_usuario(nombre, rol, password, email, grado, grupo):
+def crud_usuario(accion, nombre, rol=None, pwd=None, grado="", grupo=""):
     conn = get_connection()
     c = conn.cursor()
-    saldo_inicial = 1000000 if rol in ROLES_ADMINISTRATIVOS else 0
     try:
-        c.execute("INSERT INTO usuarios (nombre, rol, saldo, password, email, grado, grupo) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                  (nombre, rol, saldo_inicial, password, email, grado, grupo))
+        if accion == "crear":
+            saldo = 1000000 if rol in ['admin', 'profesor', 'director', 'administrativo'] else 0
+            if grado == "-": grado = ""
+            if grupo == "-": grupo = ""
+            c.execute("INSERT INTO usuarios (nombre, rol, saldo, password, grado, grupo, cuenta) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                      (str(nombre), str(rol), saldo, str(pwd), str(grado), str(grupo), generar_cuenta()))
+        elif accion == "borrar":
+            c.execute("DELETE FROM usuarios WHERE nombre=?", (str(nombre),))
         conn.commit()
         return True
     except:
@@ -87,39 +97,17 @@ def crear_usuario(nombre, rol, password, email, grado, grupo):
     finally:
         conn.close()
 
-def eliminar_usuario(nombre_usuario):
-    conn = get_connection()
-    c = conn.cursor()
-    try:
-        c.execute("DELETE FROM usuarios WHERE nombre=?", (nombre_usuario,))
-        conn.commit()
-        return True
-    except:
-        return False
-    finally:
-        conn.close()
-
-def limpiar_historial_completo():
-    conn = get_connection()
-    c = conn.cursor()
-    try:
-        c.execute("DELETE FROM transacciones")
-        conn.commit()
-        return True
-    except:
-        return False
-    finally:
-        conn.close()
-
-def ejecutar_transaccion(remitente, destinatario, monto, concepto, tipo):
+def transaccion(origen, destino, monto, concepto, tipo):
     conn = get_connection()
     c = conn.cursor()
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        c.execute("UPDATE usuarios SET saldo = saldo - ? WHERE nombre = ?", (monto, remitente))
-        c.execute("UPDATE usuarios SET saldo = saldo + ? WHERE nombre = ?", (monto, destinatario))
+        # Aseguramos que monto sea float
+        monto_float = float(monto)
+        c.execute("UPDATE usuarios SET saldo = saldo - ? WHERE nombre = ?", (monto_float, str(origen)))
+        c.execute("UPDATE usuarios SET saldo = saldo + ? WHERE nombre = ?", (monto_float, str(destino)))
         c.execute("INSERT INTO transacciones (fecha, remitente, destinatario, monto, concepto, tipo) VALUES (?, ?, ?, ?, ?, ?)",
-                  (fecha, remitente, destinatario, monto, concepto, tipo))
+                  (fecha, str(origen), str(destino), monto_float, str(concepto), str(tipo)))
         conn.commit()
         return True
     except:
@@ -127,270 +115,253 @@ def ejecutar_transaccion(remitente, destinatario, monto, concepto, tipo):
     finally:
         conn.close()
 
+# AQUÍ ESTABA EL ERROR: Cambié monto=0 a monto=0.0
+def gestion_solicitud(accion, remitente=None, destinatario=None, monto=0.0, concepto="", id_sol=None):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        if accion == "crear":
+            saldo_df = pd.read_sql("SELECT saldo FROM usuarios WHERE nombre=?", conn, params=(str(remitente),))
+            if not saldo_df.empty:
+                saldo = saldo_df.iloc[0]['saldo']
+                if saldo >= monto:
+                    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    c.execute("INSERT INTO solicitudes (remitente, destinatario, monto, concepto, fecha) VALUES (?, ?, ?, ?, ?)",
+                              (str(remitente), str(destinatario), float(monto), str(concepto), fecha))
+                    conn.commit()
+                    return True, "Enviado"
+                else:
+                    return False, "Saldo insuficiente"
+            else:
+                return False, "Usuario no encontrado"
+        elif accion == "aprobar":
+            sol_df = pd.read_sql("SELECT * FROM solicitudes WHERE id=?", conn, params=(str(id_sol),))
+            if not sol_df.empty:
+                sol = sol_df.iloc[0]
+                rem_str = str(sol['remitente'])
+                saldo_rem = pd.read_sql("SELECT saldo FROM usuarios WHERE nombre=?", conn, params=(rem_str,)).iloc[0]['saldo']
+                if saldo_rem >= sol['monto']:
+                    # Usamos float explícito
+                    monto_float = float(sol['monto'])
+                    c.execute("UPDATE usuarios SET saldo = saldo - ? WHERE nombre = ?", (monto_float, rem_str))
+                    c.execute("UPDATE usuarios SET saldo = saldo + ? WHERE nombre = ?", (monto_float, str(sol['destinatario'])))
+                    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute("INSERT INTO transacciones (fecha, remitente, destinatario, monto, concepto, tipo) VALUES (?, ?, ?, ?, ?, ?)",
+                              (fecha, rem_str, str(sol['destinatario']), monto_float, str(sol['concepto']), "transferencia"))
+                    c.execute("DELETE FROM solicitudes WHERE id=?", (str(id_sol),))
+                    conn.commit()
+                    return True, "Aprobada"
+                else:
+                    c.execute("DELETE FROM solicitudes WHERE id=?", (str(id_sol),))
+                    conn.commit()
+                    return False, "Sin fondos"
+            return False, "Error"
+        elif accion == "rechazar":
+            c.execute("DELETE FROM solicitudes WHERE id=?", (str(id_sol),))
+            conn.commit()
+            return True, "Rechazada"
+        return False, "Error"
+    except Exception as e:
+        return False, str(e)
+    finally:
+        conn.close()
+
 # ==========================================
-# 4. INTERFAZ GRÁFICA
+# 5. UI PRINCIPAL
 # ==========================================
 init_db()
 
-# --- PANTALLA DE INICIO DE SESIÓN ---
 if 'usuario' not in st.session_state:
     c1, c2, c3 = st.columns([1,1,1])
     with c2:
-        # AQUÍ PONEMOS EL LOGO GRANDE
-        if os.path.exists("logo.png"):
-            st.image("logo.png", use_container_width=True)
-        else:
-            st.markdown("<h1 style='text-align: center;'>🏦</h1>", unsafe_allow_html=True)
-            
-        st.markdown("<h1 style='text-align: center;'>Banco Escolar</h1>", unsafe_allow_html=True)
-        st.info("Ingresa tus credenciales para acceder.")
-        
-        user = st.text_input("Usuario")
-        pw = st.text_input("Contraseña", type="password")
-        
+        if archivo_logo: st.image(archivo_logo, width=200)
+        st.markdown("<h1 style='text-align: center;'>Banco Summerhill</h1>", unsafe_allow_html=True)
+        u = st.text_input("Usuario")
+        p = st.text_input("Contraseña", type="password")
         if st.button("Entrar", use_container_width=True):
-            df = login(user, pw)
-            if not df.empty:
-                st.session_state['usuario'] = user
-                st.session_state['rol'] = df.iloc[0]['rol']
+            user_data = login(u, p)
+            if not user_data.empty:
+                st.session_state['usuario'] = u
+                st.session_state['rol'] = user_data.iloc[0]['rol']
                 st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos.")
+                st.error("Error de acceso")
 
-# --- DENTRO DEL SISTEMA ---
 else:
-    # BARRA LATERAL (SIDEBAR)
     conn = get_connection()
     try:
-        saldo_admin = pd.read_sql("SELECT saldo FROM usuarios WHERE nombre=?", conn, params=(st.session_state['usuario'],)).iloc[0]['saldo']
+        saldo_data = pd.read_sql("SELECT saldo, cuenta FROM usuarios WHERE nombre=?", conn, params=(str(st.session_state['usuario']),))
+        saldo_actual = saldo_data.iloc[0]['saldo'] if not saldo_data.empty else 0
+        mi_cuenta = saldo_data.iloc[0]['cuenta'] if not saldo_data.empty else "Sin Cuenta"
     except:
-        saldo_admin = 0
+        saldo_actual = 0
+        mi_cuenta = "Error"
     conn.close()
 
     with st.sidebar:
-        # LOGO PEQUEÑO EN EL MENÚ
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=120)
-            
-        st.markdown(f"## 👤 {st.session_state['usuario']}")
-        st.caption(f"Rol: {st.session_state['rol'].upper()}")
-        st.metric("💰 MI SALDO", f"${saldo_admin:,.2f}")
-        st.divider()
-        if st.button("Cerrar Sesión", type="primary"):
+        if archivo_logo: st.image(archivo_logo, width=100)
+        st.title(st.session_state['usuario'])
+        st.caption(f"Rol: {st.session_state['rol']}")
+        st.markdown(f"💳 **Cta:** `{mi_cuenta}`")
+        st.metric("Saldo", f"${saldo_actual:,.2f}")
+        if st.button("Salir", type="primary"):
             del st.session_state['usuario']
             st.rerun()
 
-    # === VISTA DE PROFESOR / DIRECTOR ===
-    if st.session_state['rol'] in ROLES_ADMINISTRATIVOS:
-        st.title("Panel de Control Escolar")
-        
-        tab1, tab2, tab3 = st.tabs(["⚡ Operaciones (Cobros/Pagos)", "👥 Gestión de Alumnos", "📊 Historial"])
+    # VISTA ADMIN
+    if st.session_state['rol'] in ['admin', 'profesor', 'director', 'administrativo']:
+        st.title("Panel de Control")
+        tabs = st.tabs(["⚡ Operaciones", "🛡️ Autorizaciones", "👥 Gestión", "📊 Historial"])
 
-        # --- TAB 1: OPERACIONES ---
-        with tab1:
-            st.markdown("### 🔍 Buscador de Alumnos")
-            
+        with tabs[0]:
             conn = get_connection()
-            df_full = pd.read_sql("SELECT nombre, grado, grupo, saldo FROM usuarios WHERE rol='alumno'", conn)
+            alumnos = pd.read_sql("SELECT nombre, cuenta, grado, grupo FROM usuarios WHERE rol='alumno'", conn)
             conn.close()
-
-            if df_full.empty:
-                st.warning("⚠️ No hay alumnos registrados. Ve a la pestaña 'Gestión' para agregar uno.")
+            if alumnos.empty: st.warning("No hay alumnos.")
             else:
-                # FILTROS
-                c_fil1, c_fil2, c_fil3 = st.columns(3)
-                lista_grados = ["Todos"] + sorted([x for x in df_full['grado'].unique() if x])
-                lista_grupos = ["Todos"] + sorted([x for x in df_full['grupo'].unique() if x])
+                alumnos['label'] = alumnos['nombre'].astype(str) + " (Cta: " + alumnos['cuenta'].astype(str) + ")"
+                dic_alumnos = dict(zip(alumnos['label'], alumnos['nombre']))
+                c1, c2 = st.columns(2)
                 
-                filtro_grado = c_fil1.selectbox("Filtrar Grado", lista_grados)
-                filtro_grupo = c_fil2.selectbox("Filtrar Grupo", lista_grupos)
-                busqueda_txt = c_fil3.text_input("Buscar por Nombre", placeholder="Ej. Juan Pérez")
-
-                # APLICAR FILTROS
-                df_filtrado = df_full.copy()
-                if filtro_grado != "Todos":
-                    df_filtrado = df_filtrado[df_filtrado['grado'] == filtro_grado]
-                if filtro_grupo != "Todos":
-                    df_filtrado = df_filtrado[df_filtrado['grupo'] == filtro_grupo]
-                if busqueda_txt:
-                    df_filtrado = df_filtrado[df_filtrado['nombre'].str.contains(busqueda_txt, case=False)]
-
-                st.divider()
-
-                # SELECCIÓN DE MODO
-                op_mode = st.radio("Modo de Operación:", ["Individual", "Selección Múltiple (Checklist)"], horizontal=True)
-
-                # --- MODO 1: INDIVIDUAL ---
-                if op_mode == "Individual":
-                    lista_nombres = df_filtrado['nombre'].tolist()
-                    if lista_nombres:
-                        col_ind_1, col_ind_2 = st.columns(2)
-                        with col_ind_1:
-                            st.error("🚨 COBRAR MULTA")
-                            u_sanc = st.selectbox("Alumno a multar", lista_nombres, key="u_ind_m")
-                            m_sanc = st.selectbox("Motivo de la multa", list(CATALOGO_MULTAS.keys()), key="m_ind")
-                            if st.button("Aplicar Multa Individual"):
-                                ejecutar_transaccion(u_sanc, st.session_state['usuario'], CATALOGO_MULTAS[m_sanc], m_sanc, "multa")
-                                st.toast(f"Multa aplicada a {u_sanc}", icon="✅")
-                                time.sleep(1)
-                                st.rerun()
-                        with col_ind_2:
-                            st.success("💵 PAGAR ESTÍMULO")
-                            u_pay = st.selectbox("Alumno a pagar", lista_nombres, key="u_ind_p")
-                            a_pay = st.number_input("Cantidad ($)", 50, key="a_ind")
-                            r_pay = st.text_input("Motivo del pago", "Participación", key="r_ind_p")
-                            if st.button("Realizar Pago Individual"):
-                                ejecutar_transaccion(st.session_state['usuario'], u_pay, a_pay, r_pay, "ingreso")
-                                st.toast(f"Pago enviado a {u_pay}", icon="✅")
-                                time.sleep(1)
-                                st.rerun()
-                    else:
-                        st.warning("No se encontraron alumnos con esos filtros.")
-
-                # --- MODO 2: CHECKLIST (SELECCIÓN MÚLTIPLE) ---
-                else: 
-                    st.info("👇 Marca las casillas de los alumnos a los que quieras aplicar la acción.")
+                with c1:
+                    st.error("🚨 MULTAS")
+                    sel_c = st.selectbox("Alumno", list(dic_alumnos.keys()), key="sc")
+                    op_c = st.selectbox("Motivo", list(OPCIONES_MULTAS.keys()), key="oc")
                     
-                    # Insertamos columna para el checkbox
-                    df_filtrado.insert(0, "Seleccionar", False)
+                    if 'last_c' not in st.session_state or st.session_state['last_c'] != op_c:
+                        st.session_state['m_c'] = OPCIONES_MULTAS[op_c]
+                        st.session_state['t_c'] = op_c if OPCIONES_MULTAS[op_c]>0 else ""
+                        st.session_state['last_c'] = op_c
                     
-                    # Tabla editable
-                    edited_df = st.data_editor(
-                        df_filtrado,
-                        column_config={
-                            "Seleccionar": st.column_config.CheckboxColumn("Elegir", default=False),
-                            "nombre": st.column_config.TextColumn("Nombre", disabled=True),
-                            "grado": st.column_config.TextColumn("Grado", disabled=True),
-                            "grupo": st.column_config.TextColumn("Grupo", disabled=True),
-                            "saldo": st.column_config.NumberColumn("Saldo Actual", disabled=True),
-                        },
-                        disabled=["nombre", "grado", "grupo", "saldo"],
-                        hide_index=True,
-                        key="editor_seleccion",
-                        use_container_width=True
-                    )
+                    m_c = st.number_input("Monto", min_value=0, key="m_c")
+                    t_c = st.text_input("Detalle", key="t_c")
+                    if st.button("Aplicar Multa"):
+                        transaccion(dic_alumnos[sel_c], st.session_state['usuario'], m_c, t_c, "multa")
+                        st.toast("Listo", icon="✅"); time.sleep(0.5); st.rerun()
 
-                    # Obtener seleccionados
-                    alumnos_seleccionados = edited_df[edited_df["Seleccionar"] == True]["nombre"].tolist()
-                    st.write(f"Has seleccionado a: **{len(alumnos_seleccionados)} alumnos**")
+                with c2:
+                    st.success("💵 PREMIOS")
+                    sel_p = st.selectbox("Alumno", list(dic_alumnos.keys()), key="sp")
+                    op_p = st.selectbox("Motivo", list(OPCIONES_PAGOS.keys()), key="op")
+                    
+                    if 'last_p' not in st.session_state or st.session_state['last_p'] != op_p:
+                        st.session_state['m_p'] = OPCIONES_PAGOS[op_p]
+                        st.session_state['t_p'] = op_p if OPCIONES_PAGOS[op_p]>0 else ""
+                        st.session_state['last_p'] = op_p
+                    
+                    m_p = st.number_input("Monto", min_value=0, key="m_p")
+                    t_p = st.text_input("Detalle", key="t_p")
+                    if st.button("Aplicar Premio"):
+                        transaccion(st.session_state['usuario'], dic_alumnos[sel_p], m_p, t_p, "ingreso")
+                        st.toast("Listo", icon="✅"); time.sleep(0.5); st.rerun()
 
-                    if alumnos_seleccionados:
-                        c_mass_1, c_mass_2 = st.columns(2)
-                        with c_mass_1:
-                            st.error("🚨 Multar a TODOS los seleccionados")
-                            m_mass = st.selectbox("Motivo Masivo", list(CATALOGO_MULTAS.keys()), key="m_mass")
-                            if st.button("🔥 EJECUTAR MULTAS"):
-                                bar = st.progress(0)
-                                for i, user in enumerate(alumnos_seleccionados):
-                                    ejecutar_transaccion(user, st.session_state['usuario'], CATALOGO_MULTAS[m_mass], m_mass, "multa")
-                                    bar.progress((i+1)/len(alumnos_seleccionados))
-                                st.success("¡Operación completada!")
-                                time.sleep(1)
-                                st.rerun()
-
-                        with c_mass_2:
-                            st.success("💵 Pagar a TODOS los seleccionados")
-                            r_mass = st.text_input("Motivo Pago", "Beca", key="r_mass")
-                            a_mass = st.number_input("Monto por alumno", 50, key="a_mass")
-                            if st.button("🔥 EJECUTAR PAGOS"):
-                                bar = st.progress(0)
-                                for i, user in enumerate(alumnos_seleccionados):
-                                    ejecutar_transaccion(st.session_state['usuario'], user, a_mass, r_mass, "ingreso")
-                                    bar.progress((i+1)/len(alumnos_seleccionados))
-                                st.success("¡Operación completada!")
-                                time.sleep(1)
-                                st.rerun()
-
-        # --- TAB 2: GESTIÓN ---
-        with tab2:
-            st.header("🗂️ Gestión de Alumnos")
-            
-            with st.expander("➕ Registro Manual", expanded=False):
-                with st.form("alta"):
-                    c1, c2, c3 = st.columns(3)
-                    n = c1.text_input("Nombre Usuario")
-                    p = c2.text_input("Contraseña", value="1234")
-                    e = c3.text_input("Email")
-                    c4, c5, c6 = st.columns(3)
-                    r = c4.selectbox("Rol", ["alumno", "profesor"])
-                    g_grado = c5.text_input("Grado")
-                    g_grupo = c6.text_input("Grupo")
-                    if st.form_submit_button("Crear Usuario"):
-                        if crear_usuario(n, r, p, e, g_grado, g_grupo):
-                            st.success("Usuario creado.")
-                            st.rerun()
-                        else:
-                            st.error("Error: El usuario ya existe.")
-
-            with st.expander("📂 Carga Masiva (CSV)", expanded=False):
-                up = st.file_uploader("Subir archivo CSV", type="csv")
-                if up:
-                    df = pd.read_csv(up)
-                    if st.button("Procesar Archivo"):
-                        for _, row in df.iterrows():
-                            # Asegura que existan las columnas o pone vacío
-                            mail = row.get('email', '')
-                            gr = row.get('grado', '')
-                            gp = row.get('grupo', '')
-                            crear_usuario(row['nombre'], row['rol'], str(row['password']), mail, str(gr), str(gp))
-                        st.success("Usuarios cargados exitosamente.")
-                        st.rerun()
-            
-            st.divider()
-            st.subheader("Editar Base de Datos")
+        with tabs[1]:
             conn = get_connection()
-            df_users = pd.read_sql("SELECT id, nombre, rol, password, grado, grupo FROM usuarios", conn)
+            sol = pd.read_sql("SELECT * FROM solicitudes", conn)
             conn.close()
-            
-            # Tabla editable de usuarios
-            df_edit = st.data_editor(df_users, hide_index=True, key="edit_users", use_container_width=True)
-            
-            c_save, c_del = st.columns([3,1])
-            with c_save:
-                if st.button("💾 Guardar Cambios en Tabla"):
-                    conn = get_connection()
-                    c = conn.cursor()
-                    for _, row in df_edit.iterrows():
-                        c.execute("UPDATE usuarios SET nombre=?, password=?, rol=?, grado=?, grupo=? WHERE id=?",
-                                  (row['nombre'], row['password'], row['rol'], row['grado'], row['grupo'], row['id']))
-                    conn.commit()
-                    conn.close()
-                    st.success("Cambios guardados.")
-                    st.rerun()
-            with c_del:
-                conn = get_connection()
-                lista_borrar = pd.read_sql("SELECT nombre FROM usuarios WHERE nombre != 'admin'", conn)['nombre'].tolist()
-                conn.close()
-                if lista_borrar:
-                    u_del = st.selectbox("Borrar usuario:", lista_borrar)
-                    if st.button("💀 Eliminar"):
-                        eliminar_usuario(u_del)
-                        st.rerun()
+            if sol.empty: st.info("Sin solicitudes.")
+            else:
+                for _, r in sol.iterrows():
+                    with st.expander(f"${r['monto']} | {r['remitente']} -> {r['destinatario']}"):
+                        st.write(f"Motivo: {r['concepto']}")
+                        c1, c2 = st.columns(2)
+                        if c1.button("✅", key=f"ap{r['id']}"): gestion_solicitud("aprobar", id_sol=r['id']); st.rerun()
+                        if c2.button("❌", key=f"re{r['id']}"): gestion_solicitud("rechazar", id_sol=r['id']); st.rerun()
 
-        # --- TAB 3: HISTORIAL ---
-        with tab3:
-            st.subheader("📜 Historial de Transacciones")
+        with tabs[2]:
+            st.header("Gestión")
+            with st.expander("➕ Crear Usuario", expanded=True):
+                with st.form("new"):
+                    c1, c2, c3 = st.columns(3)
+                    n = c1.text_input("Nombre")
+                    p = c2.text_input("Password", "1234")
+                    r = c3.selectbox("Rol", ["alumno", "profesor", "director"])
+                    c4, c5 = st.columns(2)
+                    gr = c4.selectbox("Grado", ["-", "1°", "2°", "3°"])
+                    gp = c5.selectbox("Grupo", ["-", "A", "B"])
+                    if st.form_submit_button("Crear"):
+                        if crud_usuario("crear", n, r, p, gr, gp): st.success("Creado"); st.rerun()
+                        else: st.error("Duplicado")
+            
+            conn = get_connection()
+            df_u = pd.read_sql("SELECT * FROM usuarios", conn)
+            conn.close()
+            ed = st.data_editor(df_u, num_rows="dynamic")
+            if st.button("💾 Guardar Cambios"):
+                conn = get_connection()
+                c = conn.cursor()
+                for _, row in ed.iterrows():
+                    cta = str(row['cuenta'])
+                    if cta == "None" or cta == "": cta = generar_cuenta()
+                    c.execute("UPDATE usuarios SET nombre=?, rol=?, password=?, grado=?, grupo=?, saldo=?, email=?, cuenta=? WHERE id=?",
+                             (str(row['nombre']), str(row['rol']), str(row['password']), str(row['grado']), str(row['grupo']), float(row['saldo']), str(row['email']), cta, row['id']))
+                conn.commit(); conn.close(); st.success("Guardado"); time.sleep(1); st.rerun()
+
+            c1, c2 = st.columns(2)
+            with c1:
+                with open("banco_escolar.db", "rb") as f: st.download_button("Descargar DB", f, "respaldo.db")
+            with c2:
+                up = st.file_uploader("Restaurar DB")
+                if up and st.button("Restaurar"):
+                    with open("banco_escolar.db", "wb") as f: f.write(up.getbuffer())
+                    st.success("Listo"); st.rerun()
+
+        with tabs[3]:
             conn = get_connection()
             st.dataframe(pd.read_sql("SELECT * FROM transacciones ORDER BY id DESC", conn), use_container_width=True)
             conn.close()
-            
-            st.divider()
-            st.markdown("### ⚠️ Zona de Peligro")
-            st.info("Utiliza este botón antes de empezar la presentación para borrar pruebas anteriores.")
-            if st.button("🗑️ BORRAR TODO EL HISTORIAL", type="primary"):
-                limpiar_historial_completo()
-                st.success("Historial eliminado completamente.")
-                time.sleep(1)
-                st.rerun()
 
-    # === VISTA DE ALUMNO ===
+    # VISTA ALUMNO (DIRECTORIO Y ENVÍO MANUAL)
     else:
         conn = get_connection()
-        data = pd.read_sql("SELECT saldo, grado, grupo FROM usuarios WHERE nombre=?", conn, params=(st.session_state['usuario'],)).iloc[0]
+        df_dir = pd.read_sql("SELECT nombre, grado, grupo, cuenta FROM usuarios WHERE rol='alumno' AND nombre != ?", conn, params=(st.session_state['usuario'],))
         conn.close()
-        st.metric(f"Mi Saldo ({data['grado']} {data['grupo']})", f"${data['saldo']:,.2f}")
-        
-        st.subheader("Mis Movimientos")
+
+        col_izq, col_der = st.columns([1, 1])
+
+        # IZQUIERDA: DIRECTORIO
+        with col_izq:
+            st.info("📒 **Directorio de Cuentas**")
+            st.markdown("Busca el número de cuenta de tu compañero.")
+            
+            c_fil1, c_fil2 = st.columns(2)
+            f_grado = c_fil1.selectbox("Grado", ["Todos"] + sorted([x for x in df_dir['grado'].unique() if x]))
+            f_grupo = c_fil2.selectbox("Grupo", ["Todos"] + sorted([x for x in df_dir['grupo'].unique() if x]))
+            f_nombre = st.text_input("Buscar por Nombre")
+
+            df_show = df_dir.copy()
+            if f_grado != "Todos": df_show = df_show[df_show['grado'] == f_grado]
+            if f_grupo != "Todos": df_show = df_show[df_show['grupo'] == f_grupo]
+            if f_nombre: df_show = df_show[df_show['nombre'].str.contains(f_nombre, case=False)]
+
+            st.dataframe(df_show[['nombre', 'cuenta']], hide_index=True, use_container_width=True)
+
+        # DERECHA: TRANSFERENCIA MANUAL
+        with col_der:
+            st.success("💸 **Transferir Dinero**")
+            with st.form("form_transf"):
+                cta_destino = st.text_input("Ingresa Número de Cuenta Destino")
+                monto = st.number_input("Monto ($)", min_value=1.0)
+                motivo = st.text_input("Motivo")
+                
+                if st.form_submit_button("🚀 Enviar"):
+                    conn = get_connection()
+                    res = pd.read_sql("SELECT nombre FROM usuarios WHERE cuenta=?", conn, params=(str(cta_destino),))
+                    conn.close()
+                    
+                    if not res.empty:
+                        nombre_dest = res.iloc[0]['nombre']
+                        if nombre_dest == st.session_state['usuario']:
+                            st.error("No puedes transferirte a ti mismo.")
+                        else:
+                            ok, msg = gestion_solicitud("crear", remitente=st.session_state['usuario'], destinatario=nombre_dest, monto=monto, concepto=motivo)
+                            if ok: st.success(f"Enviado a {nombre_dest}.")
+                            else: st.error(msg)
+                    else:
+                        st.error("❌ Cuenta no encontrada.")
+
+        st.divider()
+        st.subheader("📜 Historial")
         conn = get_connection()
-        st.dataframe(pd.read_sql("SELECT fecha, concepto, monto, tipo FROM transacciones WHERE remitente=? OR destinatario=? ORDER BY id DESC", conn, params=(st.session_state['usuario'], st.session_state['usuario'])), use_container_width=True)
+        st.dataframe(pd.read_sql("SELECT fecha, concepto, monto, tipo FROM transacciones WHERE remitente=? OR destinatario=? ORDER BY id DESC", conn, params=(str(st.session_state['usuario']), str(st.session_state['usuario']))), use_container_width=True)
         conn.close()
