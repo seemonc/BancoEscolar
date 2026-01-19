@@ -9,9 +9,7 @@ import os
 # 1. DETECTOR INTELIGENTE DE IMAGEN
 # ==========================================
 def obtener_logo():
-    # Lista de posibles nombres reales del archivo
     nombres_posibles = ["logo.png", "logo.png.png", "Logo.png", "escudo.png", "imagen.png"]
-    
     for nombre in nombres_posibles:
         if os.path.exists(nombre):
             return nombre
@@ -19,7 +17,7 @@ def obtener_logo():
 
 archivo_logo = obtener_logo()
 
-# Configuración de página con el NUEVO NOMBRE
+# Configuración de página
 if archivo_logo:
     try:
         st.set_page_config(page_title="Banco Summerhill", page_icon=archivo_logo, layout="wide")
@@ -142,13 +140,11 @@ init_db()
 if 'usuario' not in st.session_state:
     c1, c2, c3 = st.columns([1,1,1])
     with c2:
-        # LOGO
         if archivo_logo:
             st.image(archivo_logo, width=200)
         else:
             st.markdown("<h1>🏦</h1>", unsafe_allow_html=True)
 
-        # TÍTULO ACTUALIZADO
         st.markdown("<h1 style='text-align: center;'>Banco Summerhill</h1>", unsafe_allow_html=True)
         st.info("Sistema Financiero Escolar")
         
@@ -184,7 +180,7 @@ else:
             del st.session_state['usuario']
             st.rerun()
 
-    # --- VISTA DIRECTIVOS / PROFESORES ---
+    # --- VISTA DIRECTIVOS ---
     if st.session_state['rol'] in ROLES_ADMINISTRATIVOS:
         st.title("Panel de Dirección - Summerhill")
         
@@ -200,7 +196,6 @@ else:
             if df_full.empty:
                 st.warning("⚠️ No hay alumnos registrados.")
             else:
-                # Filtros
                 c_fil1, c_fil2, c_fil3 = st.columns(3)
                 l_grados = ["Todos"] + sorted([x for x in df_full['grado'].unique() if x])
                 l_grupos = ["Todos"] + sorted([x for x in df_full['grupo'].unique() if x])
@@ -261,7 +256,7 @@ else:
                                 time.sleep(1)
                                 st.rerun()
 
-        # --- TAB 2: GESTIÓN ---
+        # --- TAB 2: GESTIÓN (AQUÍ ESTÁ LA CARGA MASIVA DE REGRESO) ---
         with tab2:
             st.header("Gestión")
             with st.expander("➕ Nuevo Usuario"):
@@ -273,6 +268,24 @@ else:
                     if st.form_submit_button("Crear"):
                         crear_usuario(n, "alumno", p, "", g, gr)
                         st.rerun()
+            
+            # --- BLOQUE QUE TE FALTABA ---
+            with st.expander("📂 Carga Masiva (CSV)", expanded=False):
+                st.markdown("Sube un archivo CSV con columnas: `nombre`, `rol` (alumno), `password`, `grado`, `grupo`")
+                up = st.file_uploader("Subir archivo CSV", type="csv")
+                if up:
+                    df = pd.read_csv(up)
+                    if st.button("Procesar Archivo"):
+                        for _, row in df.iterrows():
+                            # Asegura que existan las columnas o pone vacío
+                            mail = row.get('email', '')
+                            gr = row.get('grado', '')
+                            gp = row.get('grupo', '')
+                            crear_usuario(row['nombre'], row['rol'], str(row['password']), mail, str(gr), str(gp))
+                        st.success("Usuarios cargados exitosamente.")
+                        time.sleep(1)
+                        st.rerun()
+            # -----------------------------
             
             conn = get_connection()
             df_u = pd.read_sql("SELECT id, nombre, rol, password, grado, grupo FROM usuarios", conn)
