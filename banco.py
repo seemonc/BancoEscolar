@@ -25,7 +25,6 @@ def cargar_estilos():
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
         html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
         
-        /* BOTONES MODERNOS */
         .stButton > button {
             background-image: linear-gradient(to right, #1fa2ff 0%, #12d8fa 51%, #1fa2ff 100%);
             margin: 5px 0px; padding: 12px 20px; text-align: center; text-transform: uppercase;
@@ -33,17 +32,10 @@ def cargar_estilos():
             box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 12px; border: none; font-weight: bold; width: 100%;
         }
         .stButton > button:hover { background-position: right center; color: #fff; transform: scale(1.02); }
-        
-        /* TARJETA DE SALDO */
         div[data-testid="stMetric"] { background-color: #f8f9fa; border-left: 5px solid #1fa2ff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        
-        /* EXPANDERS MÁS LIMPIOS */
         .stExpander { border-radius: 10px; border: 1px solid #eee; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        
-        /* OCULTAR COSAS INNECESARIAS */
         #MainMenu {visibility: hidden;} footer {visibility: hidden;} .stDeployButton {display:none;}
         
-        /* MOBILE */
         @media only screen and (max-width: 600px) {
             .block-container { padding-top: 2rem !important; padding-bottom: 5rem !important; }
             h1 { font-size: 1.8rem !important; }
@@ -241,17 +233,21 @@ else:
             st.rerun()
 
     # =======================================================
-    # VISTA: STAFF (Admin, Director, Profesor, Adminis)
+    # VISTA: STAFF
     # =======================================================
     if st.session_state['rol'] in (ROLES_ADMIN + ROLES_DOCENTE):
         st.title("Panel de Control")
         
+        # INICIALIZAR EL "CARRITO" DE ALUMNOS
+        if 'carrito_alumnos' not in st.session_state:
+            st.session_state['carrito_alumnos'] = []
+
         if st.session_state['rol'] in ROLES_ADMIN:
             tabs = st.tabs(["⚡ Operaciones", "🛡️ Autorizaciones", "👥 Gestión (Admin)", "📊 Historial"])
         else:
             tabs = st.tabs(["⚡ Operaciones", "🛡️ Autorizaciones", "📊 Historial"])
 
-        # --- TAB 1: OPERACIONES (FLUJO UNIFICADO CON MENÚS) ---
+        # --- TAB 1: OPERACIONES (CARRITO ACUMULATIVO) ---
         with tabs[0]:
             conn = get_connection()
             df_alumnos = pd.read_sql("SELECT nombre, cuenta, grado, grupo FROM usuarios WHERE rol='alumno'", conn)
@@ -260,77 +256,116 @@ else:
             if df_alumnos.empty:
                 st.warning("No hay alumnos registrados.")
             else:
-                with st.expander("🔍 FILTROS DE BÚSQUEDA", expanded=True):
-                    c_fil1, c_fil2, c_fil3 = st.columns(3)
-                    grados = ["Todos"] + sorted([x for x in df_alumnos['grado'].unique() if x])
-                    grupos = ["Todos"] + sorted([x for x in df_alumnos['grupo'].unique() if x])
-                    
-                    f_grado = c_fil1.selectbox("Grado", grados)
-                    f_grupo = c_fil2.selectbox("Grupo", grupos)
-                    f_nombre = c_fil3.text_input("Nombre")
-
-                    df_filtrado = df_alumnos.copy()
-                    if f_grado != "Todos": df_filtrado = df_filtrado[df_filtrado['grado'] == f_grado]
-                    if f_grupo != "Todos": df_filtrado = df_filtrado[df_filtrado['grupo'] == f_grupo]
-                    if f_nombre: df_filtrado = df_filtrado[df_filtrado['nombre'].str.contains(f_nombre, case=False)]
+                c_izq, c_der = st.columns([1, 1])
                 
-                if df_filtrado.empty:
-                    st.info("No se encontraron alumnos.")
-                else:
-                    # Crear etiquetas
-                    df_filtrado['label'] = df_filtrado.apply(lambda x: f"{x['nombre']} ({x['grado']}{x['grupo']})", axis=1)
-                    dic_alumnos = dict(zip(df_filtrado['label'], df_filtrado['nombre']))
+                # === COLUMNA IZQUIERDA: BUSCADOR Y FILTROS ===
+                with c_izq:
+                    st.markdown("### 🔎 1. Buscar Alumnos")
                     
-                    st.divider()
-                    
-                    # === ZONA UNIFICADA DE ACCIÓN ===
-                    st.markdown("### 🎯 Realizar Operación")
-                    
-                    # 1. SELECCIONAR ALUMNO
-                    sel_alumno = st.selectbox("1. Seleccionar Alumno", list(dic_alumnos.keys()))
-                    target_alumno = dic_alumnos[sel_alumno]
+                    with st.expander("Filtros de Grado/Grupo", expanded=True):
+                        c_f1, c_f2 = st.columns(2)
+                        grados = ["Todos"] + sorted([x for x in df_alumnos['grado'].unique() if x])
+                        grupos = ["Todos"] + sorted([x for x in df_alumnos['grupo'].unique() if x])
+                        
+                        f_grado = c_f1.selectbox("Grado", grados)
+                        f_grupo = c_f2.selectbox("Grupo", grupos)
+                        f_nombre = st.text_input("Buscar por Nombre")
 
-                    # 2. SELECCIONAR TIPO DE ACCIÓN (MULTA O PAGO)
-                    tipo_accion = st.selectbox("2. Tipo de Operación", ["🔴 COBRAR MULTA", "🟢 PAGAR PREMIO"])
-
-                    # 3. SELECCIONAR MOTIVO Y MONTOS (DINÁMICO)
-                    if tipo_accion == "🔴 COBRAR MULTA":
-                        lista_opciones = OPCIONES_MULTAS
-                        key_prefix = "multa"
-                        color_btn = "primary"
-                        txt_btn = "Aplicar Cobro"
-                        tipo_db = "multa"
+                        # Filtrar
+                        df_filtrado = df_alumnos.copy()
+                        if f_grado != "Todos": df_filtrado = df_filtrado[df_filtrado['grado'] == f_grado]
+                        if f_grupo != "Todos": df_filtrado = df_filtrado[df_filtrado['grupo'] == f_grupo]
+                        if f_nombre: df_filtrado = df_filtrado[df_filtrado['nombre'].str.contains(f_nombre, case=False)]
+                    
+                    if df_filtrado.empty:
+                        st.info("Sin resultados.")
                     else:
-                        lista_opciones = OPCIONES_PAGOS
-                        key_prefix = "premio"
-                        color_btn = "primary" # Streamlit solo tiene primary/secondary
-                        txt_btn = "Aplicar Pago"
-                        tipo_db = "ingreso"
+                        df_filtrado['label'] = df_filtrado.apply(lambda x: f"{x['nombre']} ({x['grado']}{x['grupo']})", axis=1)
+                        # Obtener nombres reales (valores únicos)
+                        nombres_filtrados = df_filtrado['nombre'].tolist()
+                        
+                        # --- BOTONES DE AGREGAR ---
+                        st.markdown(f"**Encontrados: {len(df_filtrado)} alumnos**")
+                        
+                        # Opción A: Agregar TODOS los filtrados
+                        if st.button(f"⬇️ Agregar a los {len(df_filtrado)} filtrados", use_container_width=True):
+                            for nom in nombres_filtrados:
+                                if nom not in st.session_state['carrito_alumnos']:
+                                    st.session_state['carrito_alumnos'].append(nom)
+                            st.toast(f"Agregados {len(df_filtrado)} alumnos", icon="🛒")
+                        
+                        # Opción B: Agregar selección manual de los filtrados
+                        seleccion_manual = st.multiselect("O selecciona específicos:", df_filtrado['label'].tolist())
+                        if st.button("⬇️ Agregar Manuales", use_container_width=True):
+                            # Convertir labels a nombres reales
+                            dic_temp = dict(zip(df_filtrado['label'], df_filtrado['nombre']))
+                            for lab in seleccion_manual:
+                                nom_real = dic_temp[lab]
+                                if nom_real not in st.session_state['carrito_alumnos']:
+                                    st.session_state['carrito_alumnos'].append(nom_real)
+                            st.toast("Agregados manualmente", icon="🛒")
+
+                # === COLUMNA DERECHA: LA BOLSA Y LA ACCIÓN ===
+                with c_der:
+                    st.markdown("### 📋 2. Lista de Operación")
                     
-                    opcion_motivo = st.selectbox("3. Seleccionar Motivo", list(lista_opciones.keys()), key=f"sel_{key_prefix}")
-                    
-                    # Lógica de auto-llenado
-                    if f'last_{key_prefix}' not in st.session_state or st.session_state[f'last_{key_prefix}'] != opcion_motivo:
-                        st.session_state[f'm_{key_prefix}'] = lista_opciones[opcion_motivo]
-                        st.session_state[f't_{key_prefix}'] = opcion_motivo if lista_opciones[opcion_motivo]>0 else ""
-                        st.session_state[f'last_{key_prefix}'] = opcion_motivo
-                    
-                    c_monto, c_detalle = st.columns([1, 2])
-                    monto_final = c_monto.number_input("Monto ($)", min_value=0, key=f"m_{key_prefix}")
-                    detalle_final = c_detalle.text_input("Detalle / Comentario", key=f"t_{key_prefix}")
-                    
-                    if st.button(txt_btn, use_container_width=True):
-                        if monto_final > 0 and detalle_final:
-                            if tipo_db == "multa":
-                                transaccion(target_alumno, st.session_state['usuario'], monto_final, detalle_final, tipo_db)
-                            else:
-                                transaccion(st.session_state['usuario'], target_alumno, monto_final, detalle_final, tipo_db)
-                            
-                            st.toast(f"Operación Exitosa: {txt_btn}", icon="✅")
-                            time.sleep(0.5)
+                    if not st.session_state['carrito_alumnos']:
+                        st.info("La lista está vacía. Agrega alumnos de la izquierda.")
+                    else:
+                        st.success(f"Tienes **{len(st.session_state['carrito_alumnos'])} alumnos** listos.")
+                        
+                        # Mostrar lista pequeña
+                        with st.expander("Ver lista de seleccionados"):
+                            st.write(st.session_state['carrito_alumnos'])
+                        
+                        if st.button("🗑️ Vaciar Lista", use_container_width=True):
+                            st.session_state['carrito_alumnos'] = []
                             st.rerun()
+
+                        st.divider()
+                        st.markdown("### 🎯 3. Ejecutar Acción")
+                        
+                        # Formulario de Acción
+                        tipo_accion = st.selectbox("Operación", ["🔴 COBRAR MULTA", "🟢 PAGAR PREMIO"])
+                        
+                        if tipo_accion == "🔴 COBRAR MULTA":
+                            lista_opts = OPCIONES_MULTAS
+                            k_pref = "m"
+                            tipo_db = "multa"
+                            txt_btn = "COBRAR A TODOS"
                         else:
-                            st.warning("Verifica el monto y el detalle.")
+                            lista_opts = OPCIONES_PAGOS
+                            k_pref = "p"
+                            tipo_db = "ingreso"
+                            txt_btn = "PAGAR A TODOS"
+
+                        op_motivo = st.selectbox("Motivo", list(lista_opts.keys()))
+                        
+                        # Auto-relleno
+                        if f'last_{k_pref}' not in st.session_state or st.session_state[f'last_{k_pref}'] != op_motivo:
+                            st.session_state[f'val_{k_pref}'] = lista_opts[op_motivo]
+                            st.session_state[f'txt_{k_pref}'] = op_motivo if lista_opts[op_motivo]>0 else ""
+                            st.session_state[f'last_{k_pref}'] = op_motivo
+                        
+                        monto = st.number_input("Monto ($)", min_value=0, key=f"val_{k_pref}")
+                        detalle = st.text_input("Detalle", key=f"txt_{k_pref}")
+
+                        if st.button(txt_btn, type="primary", use_container_width=True):
+                            if monto > 0 and detalle:
+                                bar = st.progress(0)
+                                for i, alumno in enumerate(st.session_state['carrito_alumnos']):
+                                    if tipo_db == "multa":
+                                        transaccion(alumno, st.session_state['usuario'], monto, detalle, tipo_db)
+                                    else:
+                                        transaccion(st.session_state['usuario'], alumno, monto, detalle, tipo_db)
+                                    bar.progress((i + 1) / len(st.session_state['carrito_alumnos']))
+                                
+                                st.success(f"¡Listo! Se procesaron {len(st.session_state['carrito_alumnos'])} alumnos.")
+                                st.session_state['carrito_alumnos'] = [] # Limpiar al terminar
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.warning("Faltan datos (Monto o Detalle).")
 
         # --- TAB 2: AUTORIZACIONES ---
         with tabs[1]:
