@@ -262,10 +262,15 @@ else:
             st.rerun()
 
     # =======================================================
-    # VISTA: STAFF
+    # VISTA: STAFF (Admin, Director, Profesor, Adminis)
     # =======================================================
     if st.session_state['rol'] in (ROLES_ADMIN + ROLES_DOCENTE):
         st.title("Panel de Control")
+        
+        # --- NUEVO: TARJETA DE RESERVAS DEL BANCO (SALDO DEL ADMIN) ---
+        st.metric(label="🏦 RESERVAS DEL BANCO (Tu Saldo)", value=f"${saldo_actual:,.2f}")
+        st.divider()
+        # -------------------------------------------------------------
         
         if 'carrito_alumnos' not in st.session_state:
             st.session_state['carrito_alumnos'] = []
