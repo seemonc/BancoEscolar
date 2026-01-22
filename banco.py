@@ -1,12 +1,12 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-import datetime
+from datetime import datetime
 import time
 import os
 import random
 
-# INTENTO DE IMPORTAR PLOTLY (Si falla por configuración de VS Code, la app sigue viva)
+# INTENTO DE IMPORTAR PLOTLY
 try:
     import plotly.express as px
     HAS_PLOTLY = True
@@ -205,7 +205,7 @@ def init_db():
     conn = get_connection(); c = conn.cursor()
     # TABLAS BASE
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT UNIQUE, rol TEXT, saldo REAL, password TEXT, email TEXT, grado TEXT, grupo TEXT, cuenta TEXT, saldo_cajita REAL DEFAULT 0)''') 
-    c.execute('''CREATE TABLE IF NOT EXISTS transacciones (id INTEGER PRIMARY KEY, fecha TEXT, remitente TEXT, destinatario TEXT, monto REAL, concepto TEXT, tipo TEXT, estado TEXT DEFAULT 'completado')''') 
+    c.execute('''CREATE TABLE IF NOT EXISTS transacciones (id INTEGER PRIMARY KEY, fecha TEXT, remitente TEXT, destinatario TEXT, monto REAL, concepto TEXT, tipo TEXT, estado TEXT DEFAULT 'completado', autorizado_por TEXT)''') 
     c.execute('''CREATE TABLE IF NOT EXISTS solicitudes (id INTEGER PRIMARY KEY, remitente TEXT, destinatario TEXT, monto REAL, concepto TEXT, fecha TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS productos (id INTEGER PRIMARY KEY, nombre TEXT, precio REAL, stock INTEGER, icono TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS config_ahorro (id INTEGER PRIMARY KEY, tasa REAL, activo INTEGER)''')
@@ -230,7 +230,7 @@ def init_db():
     conn.commit(); conn.close()
 
 # ==========================================
-# 4. LÓGICA (CALLBACKS PARA BOTONES SEGUROS)
+# 4. LÓGICA (CON CALLBACKS)
 # ==========================================
 def login(u, p):
     conn = get_connection(); df = pd.read_sql_query("SELECT * FROM usuarios WHERE nombre=? AND password=?", conn, params=(u, p)); conn.close(); return df
@@ -247,11 +247,12 @@ def crud_usuario(accion, nombre, rol=None, pwd=None, grado="", grupo=""):
 
 def transaccion(origen, destino, monto, concepto, tipo, estado="completado", operador="Sistema"):
     # GUARDA FECHA CON SEGUNDOS PARA EVITAR ERROR 'MIXED'
-    conn = get_connection(); c = conn.cursor(); f = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection(); c = conn.cursor(); f = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         c.execute("UPDATE usuarios SET saldo=saldo-? WHERE nombre=?", (monto, origen))
         c.execute("UPDATE usuarios SET saldo=saldo+? WHERE nombre=?", (monto, destino))
-        c.execute("INSERT INTO transacciones (fecha, remitente, destinatario, monto, concepto, tipo, estado, autorizado_por) VALUES (?,?,?,?,?,?,?,?)", (f, origen, destino, monto, concepto, tipo, estado, operador))
+        c.execute("INSERT INTO transacciones (fecha, remitente, destinatario, monto, concepto, tipo, estado, autorizado_por) VALUES (?,?,?,?,?,?,?,?)", 
+                  (f, origen, destino, monto, concepto, tipo, estado, operador))
         conn.commit(); return True
     except: return False
     finally: conn.close()
@@ -270,7 +271,7 @@ def cb_comprar_producto(usuario, id_prod):
             if saldo >= precio:
                 c.execute("UPDATE usuarios SET saldo=saldo-? WHERE nombre=?", (precio, usuario))
                 c.execute("UPDATE productos SET stock=stock-1 WHERE id=?", (int(id_prod),))
-                f = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("INSERT INTO transacciones (fecha, remitente, destinatario, monto, concepto, tipo, estado, autorizado_por) VALUES (?,?,?,?,?,?,?,?)", 
                           (f, usuario, "TIENDA", precio, f"{nombre_prod}", "compra", "pendiente", "TIENDA"))
                 conn.commit()
@@ -299,7 +300,7 @@ def gestion_solicitud(accion, remitente=None, destinatario=None, monto=0.0, conc
             if s is None: return False, "Usuario no encontrado"
             s = s[0]
             if s >= monto:
-                c.execute("INSERT INTO solicitudes (remitente, destinatario, monto, concepto, fecha) VALUES (?,?,?,?,?)", (remitente, destinatario, monto, concepto, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                c.execute("INSERT INTO solicitudes (remitente, destinatario, monto, concepto, fecha) VALUES (?,?,?,?,?)", (remitente, destinatario, monto, concepto, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                 conn.commit(); return True, "OK"
             return False, "Saldo"
         elif accion == "aprobar":
@@ -338,6 +339,7 @@ def mover_cajita(usuario, monto, direccion):
         saldo_disp = user_data[0]
         saldo_caj = user_data[1]
         
+        # LOGICA BLINDADA DE CAJITA: RESTAR DE SALDO
         if direccion == 'in':
             if saldo_disp >= monto:
                 c.execute("UPDATE usuarios SET saldo=saldo-?, saldo_cajita=saldo_cajita+? WHERE nombre=?", (monto, monto, usuario))
@@ -358,7 +360,7 @@ def pagar_rendimientos():
         tasa = conf['tasa'] / 100.0
         if conf['activo']:
             users = c.execute("SELECT nombre, saldo_cajita FROM usuarios WHERE saldo_cajita > 0").fetchall()
-            count = 0; total_pagado = 0; f = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            count = 0; total_pagado = 0; f = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for u in users:
                 nombre = u[0]; saldo_c = u[1]; ganancia = saldo_c * tasa
                 if ganancia > 0:
@@ -669,7 +671,7 @@ else:
                 if not df_aud.empty and filtro_fecha_aud:
                     # SOLUCIÓN ERROR FECHA: format='mixed'
                     df_aud['dt_temp'] = pd.to_datetime(df_aud['fecha'], format='mixed', dayfirst=False)
-                    df_aud = df_aud[df_aud['dt_temp'].apply(lambda x: x.date() if pd.notna(x) else None) == filtro_fecha_aud]
+                    df_aud = df_aud[df_aud['dt_temp'].apply(lambda x: x.date()) == filtro_fecha_aud]
                     df_aud.drop(columns=['dt_temp'], inplace=True)
 
                 if not df_aud.empty:
@@ -769,10 +771,10 @@ else:
             c_hist_1, c_hist_2, c_hist_3 = st.columns([1,1,1])
             filtro_tipo = c_hist_1.selectbox("Filtrar por", ["Todo", "Mes", "Día"], key="alu_hist_mode")
             f_fecha = None; f_mes = None; f_anio = None
-            if filtro_tipo == "Día": f_fecha = c_hist_2.date_input("Fecha", datetime.datetime.now(), key="alu_hist_date")
+            if filtro_tipo == "Día": f_fecha = c_hist_2.date_input("Fecha", datetime.now(), key="alu_hist_date")
             elif filtro_tipo == "Mes":
-                f_mes = c_hist_2.selectbox("Mes", range(1,13), index=datetime.datetime.now().month-1, key="alu_hist_month")
-                f_anio = c_hist_3.number_input("Año", value=datetime.datetime.now().year, step=1, key="alu_hist_year")
+                f_mes = c_hist_2.selectbox("Mes", range(1,13), index=datetime.now().month-1, key="alu_hist_month")
+                f_anio = c_hist_3.number_input("Año", value=datetime.now().year, step=1, key="alu_hist_year")
             
             df = pd.read_sql("SELECT fecha, remitente, destinatario, monto, concepto, autorizado_por FROM transacciones WHERE remitente=? OR destinatario=? ORDER BY id DESC", conn, params=(st.session_state['usuario'], str(st.session_state['usuario'])))
             conn.close()
@@ -780,20 +782,8 @@ else:
             if not df.empty:
                 # SOLUCIÓN ERROR FECHA: format='mixed'
                 df['dt'] = pd.to_datetime(df['fecha'], format='mixed', dayfirst=False)
-                def get_date(x):
-                    if isinstance(x, datetime):
-                        return x.date()
-                    return None
-                def get_month(x):
-                    if isinstance(x, datetime):
-                        return x.month
-                    return None
-                def get_year(x):
-                    if isinstance(x, datetime):
-                        return x.year
-                    return None
-                if filtro_tipo == "Día" and f_fecha: df = df[df['dt'].apply(get_date) == f_fecha]
-                elif filtro_tipo == "Mes" and f_mes and f_anio: df = df[(df['dt'].apply(get_month) == f_mes) & (df['dt'].apply(get_year) == f_anio)]
+                if filtro_tipo == "Día" and f_fecha: df = df[df['dt'].apply(lambda x: x.date()) == f_fecha]
+                elif filtro_tipo == "Mes" and f_mes and f_anio: df = df[(df['dt'].apply(lambda x: x.month) == f_mes) & (df['dt'].apply(lambda x: x.year) == f_anio)]
                 
                 rate = RATES[st.session_state['currency']]
                 st.info(f"Mostrando {len(df)} movimientos. Total: {SYMBOLS[st.session_state['currency']]}{(df['monto'].sum() * rate):,.2f}")
@@ -823,6 +813,7 @@ else:
                 if total_in >= total_out: st.markdown(f"""<div class="financial-tip-good"><h4>{T('tip_good_title')}</h4><p>{T('tip_good_desc')}</p></div>""", unsafe_allow_html=True)
                 else: st.markdown(f"""<div class="financial-tip-bad"><h4>{T('tip_bad_title')}</h4><p>{T('tip_bad_desc')}</p></div>""", unsafe_allow_html=True)
                 
+                # GRAPH FALLBACK: Si no hay Plotly, usa gráficos nativos
                 if HAS_PLOTLY:
                     df_hist['cumulative_balance'] = df_hist['real_val'].cumsum()
                     rate = RATES[st.session_state['currency']]
@@ -835,7 +826,12 @@ else:
                         df_expenses['abs_val'] = df_expenses['real_val'].abs() * rate
                         fig_pie = px.pie(df_expenses, values='abs_val', names='tipo', title=T('chart_expenses'), color_discrete_sequence=px.colors.sequential.Teal)
                         st.plotly_chart(fig_pie, use_container_width=True)
-                    c1, c2 = st.columns(2)
-                    c1.metric(T('total_in'), f"{SYMBOLS[st.session_state['currency']]}{total_in * rate:,.2f}")
-                    c2.metric(T('total_out'), f"{SYMBOLS[st.session_state['currency']]}{total_out * rate:,.2f}")
-                else: st.warning("⚠️ Instala 'plotly' para ver gráficas.")
+                else:
+                    # FALLBACK NATIVO (PARA EL TELÉFONO SIN PLOTLY)
+                    st.warning("⚠️ Modo Básico (Sin Plotly). Mostrando gráficas simples.")
+                    df_hist['cumulative_balance'] = df_hist['real_val'].cumsum()
+                    st.line_chart(df_hist, x='fecha_dt', y='cumulative_balance')
+
+                c1, c2 = st.columns(2)
+                c1.metric(T('total_in'), f"{SYMBOLS[st.session_state['currency']]}{total_in * rate:,.2f}")
+                c2.metric(T('total_out'), f"{SYMBOLS[st.session_state['currency']]}{total_out * rate:,.2f}")
